@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fit Fun — Spor Oyunu</title>
+  <style>
+    /* Layout */
+    html, body { height:100%; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; background:#0f1020; color:#fff; display:flex; align-items:center; justify-content:center; }
+    .wrap { width:min(820px, 94vw); padding:20px; }
+    .card { background:#17182d; border-radius:16px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.4); display:flex; flex-direction:column; gap:14px; }
+
+    /* Media */
+    #gif { width:100%; border-radius:12px; background:#0b0c18; aspect-ratio:16/9; object-fit:contain; image-rendering:auto; }
+    .placeholder { display:flex; align-items:center; justify-content:center; color:#9aa4ff; font-weight:600; }
+
+    /* Rows & Buttons */
+    .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+    .btn { background:#6a5cff; border:none; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:700; }
+    .btn.secondary { background:#2b2d55; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .pill { padding:6px 10px; border-radius:999px; background:#23254d; color:#dbe0ff; font-size:.9rem; }
+
+    /* Progress */
+    .bar { height:8px; background:#0b0c18; border-radius:999px; overflow:hidden; }
+    .fill { height:100%; width:0%; background:linear-gradient(90deg,#6a5cff,#ff5cf0); transition:width .2s ease; }
+
+    /* Mode selector */
+    .modes { display:flex; gap:10px; flex-wrap:wrap; }
+    .mode { border:2px solid transparent; padding:10px 14px; border-radius:12px; cursor:pointer; transition: transform .08s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease; }
+    .mode:hover { transform: translateY(-1px); }
+    .mode-short { background:linear-gradient(180deg,#30357a,#23285f); color:#e6e9ff; }
+    .mode-long { background:linear-gradient(180deg,#1f5a3a,#17452d); color:#eafff4; }
+    .mode-short.selected { border-color:#6a5cff; box-shadow:0 0 0 3px rgba(106,92,255,.25) inset; }
+    .mode-long.selected { border-color:#3ddc97; box-shadow:0 0 0 3px rgba(61,220,151,.28) inset; }
+    .hint { color:#aeb4ff; font-size:.9rem; }
+
+    /* Finish screen */
+    .center { text-align:center; }
+
+    /* FX overlay */
+    #fx { position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:999; }
+    .particle { position:fixed; will-change: transform, opacity; }
+    .particle.em { font-size:24px; filter: drop-shadow(0 2px 2px rgba(0,0,0,.4)); animation: rise .8s ease-out forwards; }
+    .particle.conf { width:8px; height:12px; background: var(--c, #ff5cf0); transform: rotate(var(--r, 0deg)); opacity:.95; animation: fall var(--dur, 1400ms) linear forwards; }
+    @keyframes rise { to { transform: translate(var(--dx, 0px), var(--dy, -120px)) scale(1.1); opacity:0; } }
+    @keyframes fall { to { transform: translateY(110vh) rotate(360deg); opacity:0.9; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="app">
+      <div class="row">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span class="pill">Score: <span id="score">0</span></span>
+          <span class="pill">Combo: <span id="combo">0x</span></span>
+          <span class="pill">Session: <span id="sessionLeft">00:00</span></span>
+          <span class="pill" id="perfect"></span>
+        </div>
+        <div class="row" style="gap:8px;">
+          <button id="music" class="btn secondary">Music ▶︎</button>
+        </div>
+      </div>
+
+      <div class="row" style="align-items:flex-start;">
+        <div>
+          <div class="hint"><strong>TR</strong>: Mod seç → Başlat. <strong>EN</strong>: Pick a mode → Start.</div>
+          <div class="modes" id="modes">
+            <button class="mode mode-short selected" data-min="5" data-max="10">Kısa: 5–10 dk</button>
+            <button class="mode mode-long" data-min="20" data-max="25">Uzun: 20–25 dk</button>
+          </div>
+        </div>
+        <div class="row" style="gap:8px;">
+          <button id="start" class="btn">Başlat / Start</button>
+          <button id="done" class="btn" disabled>Bitti (Space)</button>
+          <button id="skip" class="btn secondary" disabled>Geç / Skip</button>
+          <button id="stop" class="btn secondary" disabled>Bitir / Stop</button>
+        </div>
+      </div>
+
+      <div id="gif" class="placeholder" style="width:100%; aspect-ratio:16/9; border-radius:12px; background:#0b0c18; display:flex; align-items:center; justify-content:center;">
+        <div class="center" style="font-size:1.2rem; color:#ffb3d9;">
+          Seni çok seviyorummm, İyi ki hayatımdasınnnn 💖
+        </div>
+      </div>
+
+      <div class="row">
+        <div>Hareket / Move: <strong id="moveName">-</strong></div>
+        <div>Süre / Time: <strong><span id="timer">0</span>s</strong></div>
+      </div>
+
+      <div class="bar"><div id="fill" class="fill"></div></div>
+    </div>
+  </div>
+
+  <!-- Background music (replace music.mp3 with your track) -->
+  <audio id="bgm" crossorigin="anonymous"></audio>
+  <div id="fx"></div>
+
+  <script>
+    // Exercises list: replace gifs with your actual files in /gifs
+    const exercises = [
+      { name: "Jumping Jacks", gif: "gifs/jumping-jacks.gif", seconds: 20, bpm: 120 },
+      { name: "Squats", gif: "gifs/squats.gif", seconds: 25, bpm: 110 },
+      { name: "High Knees", gif: "gifs/high-knees.gif", seconds: 20, bpm: 130 },
+      { name: "Lunges", gif: "gifs/lunges.gif", seconds: 25, bpm: 100 },
+      { name: "Mountain Climbers", gif: "gifs/mountain-climbers.gif", seconds: 20, bpm: 140 },
+      { name: "Planks", gif: "gifs/planks.gif", seconds: 30, bpm: 90 },
+      { name: "Push Up", gif: "gifs/push-up.gif", seconds: 20, bpm: 100 },
+      { name: "Glute Bridge", gif: "gifs/glute-bridge.gif", seconds: 25, bpm: 95 }
+    ];
+
+    // UI elements
+    const scoreEl = document.getElementById('score');
+    const comboEl = document.getElementById('combo');
+    const perfectEl = document.getElementById('perfect');
+    const timerEl = document.getElementById('timer');
+    const moveNameEl = document.getElementById('moveName');
+    const gifEl = document.getElementById('gif');
+    const fillEl = document.getElementById('fill');
+    const startBtn = document.getElementById('start');
+    const doneBtn = document.getElementById('done');
+    const skipBtn = document.getElementById('skip');
+    const stopBtn = document.getElementById('stop');
+    const musicBtn = document.getElementById('music');
+    const bgm = document.getElementById('bgm');
+    const sessionLeftEl = document.getElementById('sessionLeft');
+    const modesEl = document.getElementById('modes');
+
+    // State
+    let score = 0;
+    let combo = 0;
+    let timeLeft = 0;
+    let roundTick = null;
+    let sessionTick = null;
+    let current = null;
+    let running = false;
+    let sessionMsLeft = 0;
+    let selectedMode = { minMin: 5, maxMin: 10 };
+
+    // Playlist (random) — expects files: music/1.mp3 ... music/5.mp3
+    const playlist = [1,2,3,4,5].map(n => `music/${n}.mp3`);
+    let lastTrackIndex = -1;
+    function pickRandomTrack(){
+      if (playlist.length === 0) return null;
+      let idx;
+      if (playlist.length === 1) idx = 0; else {
+        do { idx = Math.floor(Math.random()*playlist.length); } while (idx === lastTrackIndex);
+      }
+      lastTrackIndex = idx;
+      return playlist[idx];
+    }
+    function ensurePlaying(){
+      if (!bgm.src){
+        const t = pickRandomTrack();
+        if (t) bgm.src = t;
+      }
+      return bgm.play();
+    }
+    bgm.addEventListener('ended', () => {
+      const next = pickRandomTrack();
+      if (next){ bgm.src = next; bgm.play().catch(()=>{}); }
+    });
+
+    // FX helpers
+    const fxRoot = document.getElementById('fx');
+    const EMOJIS = ["🎉","💪","🔥","✨","🏃‍♀️","🏋️‍♀️","🕺","💖","🎵","⭐️"]; 
+    function getGifCenter(){
+      const el = document.getElementById('gif');
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width/2, y: r.top + r.height/2 };
+    }
+    function spawnEmojiBurst(count = 12){
+      const { x, y } = getGifCenter();
+      for (let i = 0; i < count; i++){
+        const s = document.createElement('span');
+        s.className = 'particle em';
+        s.textContent = EMOJIS[Math.floor(Math.random()*EMOJIS.length)];
+        const dx = (Math.random()*240 - 120) + 'px';
+        const dy = (Math.random()*-140 - 60) + 'px';
+        s.style.left = x + 'px';
+        s.style.top = y + 'px';
+        s.style.transform = 'translate(0,0)';
+        s.style.setProperty('--dx', dx);
+        s.style.setProperty('--dy', dy);
+        fxRoot.appendChild(s);
+        s.addEventListener('animationend', () => s.remove());
+      }
+    }
+    function spawnConfettiRain(count = 120){
+      const colors = ['#6a5cff','#ff5cf0','#3ddc97','#ffd166','#06d6a0','#ef476f'];
+      const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
+      for (let i = 0; i < count; i++){
+        const c = document.createElement('div');
+        c.className = 'particle conf';
+        const x = Math.random() * vw;
+        const delay = Math.random() * 300;
+        const dur = 1200 + Math.random()*900;
+        c.style.left = x + 'px';
+        c.style.top = '-12px';
+        c.style.setProperty('--c', colors[Math.floor(Math.random()*colors.length)]);
+        c.style.setProperty('--r', Math.floor(Math.random()*360)+'deg');
+        c.style.setProperty('--dur', dur+'ms');
+        c.style.animationDelay = delay+'ms';
+        fxRoot.appendChild(c);
+        setTimeout(() => c.remove(), delay + dur + 50);
+      }
+    }
+
+    // Mode selection
+    modesEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mode');
+      if (!btn) return;
+      document.querySelectorAll('.mode').forEach(el => el.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedMode = { minMin: Number(btn.dataset.min), maxMin: Number(btn.dataset.max) };
+    });
+
+    // Helpers
+    function pad2(n){ return String(n).padStart(2,'0'); }
+    function formatMs(ms){ const s = Math.max(0, Math.floor(ms/1000)); return `${pad2(Math.floor(s/60))}:${pad2(s%60)}`; }
+    function pickRandom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+    function randomInt(min, max){ return Math.floor(Math.random()*(max-min+1))+min; }
+
+    function startSession(){
+      if (running) return;
+      // random session length within selected range
+      const minutes = randomInt(selectedMode.minMin, selectedMode.maxMin);
+      sessionMsLeft = minutes * 60 * 1000;
+      sessionLeftEl.textContent = formatMs(sessionMsLeft);
+      score = 0; combo = 0; scoreEl.textContent = '0'; comboEl.textContent = '0x'; perfectEl.textContent='';
+      running = true; startBtn.disabled = true; stopBtn.disabled = false; doneBtn.disabled = false; skipBtn.disabled = false;
+      startRound();
+      clearInterval(sessionTick);
+      const startTs = Date.now();
+      sessionTick = setInterval(() => {
+        const now = Date.now();
+        const elapsed = now - startTs; // not used to avoid drift; we decrement instead
+        sessionMsLeft -= 1000;
+        sessionLeftEl.textContent = formatMs(sessionMsLeft);
+        if (sessionMsLeft <= 0){ finishSession(); }
+      }, 1000);
+    }
+
+    function finishSession(){
+      clearInterval(sessionTick);
+      clearInterval(roundTick);
+      running = false;
+      // Finish FX
+      spawnEmojiBurst(24);
+      spawnConfettiRain(160);
+      startBtn.disabled = false; stopBtn.disabled = true; doneBtn.disabled = true; skipBtn.disabled = true;
+      timeLeft = 0; timerEl.textContent = '0'; fillEl.style.width = '0%';
+      moveNameEl.textContent = '-';
+      perfectEl.textContent = '';
+
+      // Simple finish screen state on the image area
+      gifEl.removeAttribute('src');
+      gifEl.classList.add('placeholder');
+      gifEl.alt = 'session-finished';
+      gifEl.style.display = 'flex';
+      gifEl.src = '';
+      gifEl.outerHTML = `<div id="gif" class="placeholder" style="width:100%; aspect-ratio:16/9; border-radius:12px; background:#0b0c18; display:flex; align-items:center; justify-content:center;">`+
+        `<div class="center"><div style="font-size:1.2rem; margin-bottom:8px;">Bitti! / Finished!</div>`+
+        `<div style="opacity:.9;">Score: ${score} | Combo Max ~ ${comboEl.textContent}</div></div>`+
+      `</div>`;
+    }
+
+    function startRound(){
+      current = pickRandom(exercises);
+      const img = new Image();
+      let triedAlt = false;
+      img.onload = () => { document.getElementById('gif').replaceWith(img); img.id = 'gif'; img.alt = 'exercise'; img.style.width='100%'; img.style.borderRadius='12px'; img.style.background='#0b0c18'; img.style.aspectRatio='16/9'; img.style.objectFit='contain'; };
+      img.onerror = () => {
+        if (!triedAlt && current.gif.startsWith('gifs/')){
+          triedAlt = true;
+          const alt = '../' + current.gif;
+          console.warn('GIF failed, trying alt path:', alt);
+          img.src = alt;
+          return;
+        }
+        const ph = document.createElement('div');
+        ph.id = 'gif'; ph.className = 'placeholder'; ph.style.width='100%'; ph.style.borderRadius='12px'; ph.style.background='#0b0c18'; ph.style.aspectRatio='16/9';
+        ph.textContent = 'GIF bulunamadı / GIF missing';
+        document.getElementById('gif').replaceWith(ph);
+      };
+      img.src = current.gif;
+      moveNameEl.textContent = current.name;
+      timeLeft = current.seconds;
+      timerEl.textContent = timeLeft;
+      fillEl.style.width = '100%';
+      perfectEl.textContent = '';
+
+      clearInterval(roundTick);
+      const total = timeLeft;
+      roundTick = setInterval(() => {
+        timeLeft -= 1;
+        timerEl.textContent = Math.max(0, timeLeft);
+        fillEl.style.width = `${Math.max(0, (timeLeft / total) * 100)}%`;
+        if (timeLeft <= 0){ endRound(false); }
+      }, 1000);
+    }
+
+    function endRound(success){
+      clearInterval(roundTick);
+      if (!running) return;
+      if (success){
+        combo += 1;
+        const gained = 100 * (1 + 0.25 * (combo - 1));
+        score += Math.round(gained);
+        perfectEl.textContent = '';
+        // Success FX
+        spawnEmojiBurst(10);
+      } else {
+        combo = 0;
+        perfectEl.textContent = '';
+      }
+      scoreEl.textContent = String(score);
+      comboEl.textContent = combo + 'x';
+
+      // If session nearly over, finish, else schedule next
+      if (sessionMsLeft <= 0){ finishSession(); return; }
+      setTimeout(() => { if (running) startRound(); }, 600);
+    }
+
+    // Controls
+    startBtn.addEventListener('click', startSession);
+    stopBtn.addEventListener('click', finishSession);
+    doneBtn.addEventListener('click', () => running && endRound(true));
+    skipBtn.addEventListener('click', () => running && endRound(false));
+    document.addEventListener('keydown', (e) => { if (e.code === 'Space'){ e.preventDefault(); if (running) endRound(true); }});
+
+    musicBtn.addEventListener('click', async () => {
+      try {
+        if (bgm.paused) { await ensurePlaying(); musicBtn.textContent = 'Music ⏸'; }
+        else { bgm.pause(); musicBtn.textContent = 'Music ▶︎'; }
+      } catch (e) { console.warn(e); }
+    });
+  </script>
+</body>
+</html>
+

@@ -73,6 +73,7 @@
         </div>
         <div class="row" style="gap:8px;">
           <button id="start" class="btn">Başlat / Start</button>
+          <button id="pause" class="btn secondary" disabled>Duraklat / Pause</button>
           <button id="done" class="btn" disabled>Bitti (Space)</button>
           <button id="skip" class="btn secondary" disabled>Geç / Skip</button>
           <button id="stop" class="btn secondary" disabled>Bitir / Stop</button>
@@ -101,14 +102,13 @@
   <script>
     // Exercises list: replace gifs with your actual files in /gifs
     const exercises = [
-      { name: "Jumping Jacks", gif: "gifs/jumping-jacks.gif", seconds: 20, bpm: 120 },
-      { name: "Squats", gif: "gifs/squats.gif", seconds: 25, bpm: 110 },
-      { name: "High Knees", gif: "gifs/high-knees.gif", seconds: 20, bpm: 130 },
-      { name: "Lunges", gif: "gifs/lunges.gif", seconds: 25, bpm: 100 },
-      { name: "Mountain Climbers", gif: "gifs/mountain-climbers.gif", seconds: 20, bpm: 140 },
-      { name: "Planks", gif: "gifs/planks.gif", seconds: 30, bpm: 90 },
-      { name: "Push Up", gif: "gifs/push-up.gif", seconds: 20, bpm: 100 },
-      { name: "Glute Bridge", gif: "gifs/glute-bridge.gif", seconds: 25, bpm: 95 }
+      { name: "Jumping Jacks", gif: "gifs/jumping-jacks.gif", seconds: 40, bpm: 120 },
+      { name: "Squats", gif: "gifs/squats.gif", seconds: 45, bpm: 110 },
+      { name: "High Knees", gif: "gifs/high-knees.gif", seconds: 40, bpm: 130 },
+      { name: "Lunges", gif: "gifs/lunges.gif", seconds: 45, bpm: 100 },
+      { name: "Mountain Climbers", gif: "gifs/mountain-climbers.gif", seconds: 40, bpm: 140 },
+      { name: "Planks", gif: "gifs/planks.gif", seconds: 45, bpm: 90 },
+      { name: "Glute Bridge", gif: "gifs/glute-bridge.gif", seconds: 45, bpm: 95 }
     ];
 
     // UI elements
@@ -120,6 +120,7 @@
     const gifEl = document.getElementById('gif');
     const fillEl = document.getElementById('fill');
     const startBtn = document.getElementById('start');
+    const pauseBtn = document.getElementById('pause');
     const doneBtn = document.getElementById('done');
     const skipBtn = document.getElementById('skip');
     const stopBtn = document.getElementById('stop');
@@ -138,6 +139,9 @@
     let running = false;
     let sessionMsLeft = 0;
     let selectedMode = { minMin: 5, maxMin: 10 };
+    let currentExerciseIndex = 0; // Hareket sırasını takip etmek için
+    let isPaused = false; // Duraklama durumu
+    let breakTimer = null; // Mola sayacı
 
     // Playlist (random) — expects files: music/1.mp3 ... music/5.mp3
     const playlist = [1,2,3,4,5].map(n => `music/${n}.mp3`);
@@ -230,27 +234,33 @@
       sessionMsLeft = minutes * 60 * 1000;
       sessionLeftEl.textContent = formatMs(sessionMsLeft);
       score = 0; combo = 0; scoreEl.textContent = '0'; comboEl.textContent = '0x'; perfectEl.textContent='';
-      running = true; startBtn.disabled = true; stopBtn.disabled = false; doneBtn.disabled = false; skipBtn.disabled = false;
+      currentExerciseIndex = 0; // Sırayı sıfırla
+      isPaused = false; // Duraklama durumunu sıfırla
+      running = true; startBtn.disabled = true; stopBtn.disabled = false; doneBtn.disabled = false; skipBtn.disabled = false; pauseBtn.disabled = false;
       startRound();
       clearInterval(sessionTick);
       const startTs = Date.now();
-      sessionTick = setInterval(() => {
+        sessionTick = setInterval(() => {
         const now = Date.now();
         const elapsed = now - startTs; // not used to avoid drift; we decrement instead
-        sessionMsLeft -= 1000;
-        sessionLeftEl.textContent = formatMs(sessionMsLeft);
-        if (sessionMsLeft <= 0){ finishSession(); }
+        if (!isPaused) { // Duraklama sırasında oturum süresini durdur
+          sessionMsLeft -= 1000;
+          sessionLeftEl.textContent = formatMs(sessionMsLeft);
+          if (sessionMsLeft <= 0){ finishSession(); }
+        }
       }, 1000);
     }
 
     function finishSession(){
       clearInterval(sessionTick);
       clearInterval(roundTick);
-      running = false;
+      clearInterval(breakTimer);
+      breakTimer = null; // Timer referansını temizle
+      running = false; isPaused = false;
       // Finish FX
       spawnEmojiBurst(24);
       spawnConfettiRain(160);
-      startBtn.disabled = false; stopBtn.disabled = true; doneBtn.disabled = true; skipBtn.disabled = true;
+      startBtn.disabled = false; stopBtn.disabled = true; doneBtn.disabled = true; skipBtn.disabled = true; pauseBtn.disabled = true;
       timeLeft = 0; timerEl.textContent = '0'; fillEl.style.width = '0%';
       moveNameEl.textContent = '-';
       perfectEl.textContent = '';
@@ -267,8 +277,37 @@
       `</div>`;
     }
 
+    function startBreak(){
+      // 7 saniye mola ekranı
+      clearInterval(breakTimer);
+      const ph = document.createElement('div');
+      ph.id = 'gif'; ph.className = 'placeholder'; ph.style.width='100%'; ph.style.borderRadius='12px'; ph.style.background='#0b0c18'; ph.style.aspectRatio='16/9';
+      ph.style.display = 'flex'; ph.style.alignItems = 'center'; ph.style.justifyContent = 'center';
+      ph.innerHTML = '<div class="center" style="font-size:1.2rem; color:#ffb3d9;">💧 Su İç / Rest 💧<br><span style="font-size:1rem; opacity:.8;">Hazır olunca Space\'e bas</span></div>';
+      document.getElementById('gif').replaceWith(ph);
+      moveNameEl.textContent = 'Mola / Break';
+      timeLeft = 7;
+      timerEl.textContent = timeLeft;
+      fillEl.style.width = '100%';
+      
+      breakTimer = setInterval(() => {
+        if (!isPaused) { // Duraklama sırasında mola sayacını durdur
+          timeLeft -= 1;
+          timerEl.textContent = Math.max(0, timeLeft);
+          fillEl.style.width = `${Math.max(0, (timeLeft / 7) * 100)}%`;
+          if (timeLeft <= 0){ 
+            clearInterval(breakTimer);
+            breakTimer = null; // Timer referansını temizle
+            if (running && !isPaused) startRound(); 
+          }
+        }
+      }, 1000);
+    }
+
     function startRound(){
-      current = pickRandom(exercises);
+      // Hareketleri sırayla seç (rastgele değil)
+      current = exercises[currentExerciseIndex];
+      currentExerciseIndex = (currentExerciseIndex + 1) % exercises.length; // Sırayı ilerlet, liste sonuna gelince başa dön
       const img = new Image();
       let triedAlt = false;
       img.onload = () => { document.getElementById('gif').replaceWith(img); img.id = 'gif'; img.alt = 'exercise'; img.style.width='100%'; img.style.borderRadius='12px'; img.style.background='#0b0c18'; img.style.aspectRatio='16/9'; img.style.objectFit='contain'; };
@@ -295,10 +334,12 @@
       clearInterval(roundTick);
       const total = timeLeft;
       roundTick = setInterval(() => {
-        timeLeft -= 1;
-        timerEl.textContent = Math.max(0, timeLeft);
-        fillEl.style.width = `${Math.max(0, (timeLeft / total) * 100)}%`;
-        if (timeLeft <= 0){ endRound(false); }
+        if (!isPaused) { // Duraklama sırasında sayma
+          timeLeft -= 1;
+          timerEl.textContent = Math.max(0, timeLeft);
+          fillEl.style.width = `${Math.max(0, (timeLeft / total) * 100)}%`;
+          if (timeLeft <= 0){ endRound(false); }
+        }
       }, 1000);
     }
 
@@ -319,17 +360,49 @@
       scoreEl.textContent = String(score);
       comboEl.textContent = combo + 'x';
 
-      // If session nearly over, finish, else schedule next
+      // If session nearly over, finish, else schedule next with break
       if (sessionMsLeft <= 0){ finishSession(); return; }
-      setTimeout(() => { if (running) startRound(); }, 600);
+      setTimeout(() => { if (running && !isPaused) startBreak(); }, 600);
+    }
+
+    // Pause/Resume functionality
+    function togglePause(){
+      if (!running) return;
+      isPaused = !isPaused;
+      if (isPaused) {
+        pauseBtn.textContent = 'Devam / Resume';
+        pauseBtn.classList.add('btn');
+        pauseBtn.classList.remove('secondary');
+      } else {
+        pauseBtn.textContent = 'Duraklat / Pause';
+        pauseBtn.classList.remove('btn');
+        pauseBtn.classList.add('secondary');
+      }
     }
 
     // Controls
     startBtn.addEventListener('click', startSession);
+    pauseBtn.addEventListener('click', togglePause);
     stopBtn.addEventListener('click', finishSession);
-    doneBtn.addEventListener('click', () => running && endRound(true));
-    skipBtn.addEventListener('click', () => running && endRound(false));
-    document.addEventListener('keydown', (e) => { if (e.code === 'Space'){ e.preventDefault(); if (running) endRound(true); }});
+    doneBtn.addEventListener('click', () => running && !isPaused && endRound(true));
+    skipBtn.addEventListener('click', () => running && !isPaused && endRound(false));
+    document.addEventListener('keydown', (e) => { 
+      if (e.code === 'Space'){ 
+        e.preventDefault(); 
+        if (running && !isPaused) {
+          // Eğer mola sırasındaysa mola sayacını sıfırla ve sonraki harekete geç
+          if (breakTimer) {
+            clearInterval(breakTimer);
+            breakTimer = null; // Timer referansını temizle
+            startRound();
+          } else {
+            endRound(true); // Normal hareket sırasında hareketi tamamla
+          }
+        } else if (running && isPaused) {
+          togglePause(); // Duraklama sırasında devam et
+        }
+      }
+    });
 
     musicBtn.addEventListener('click', async () => {
       try {
